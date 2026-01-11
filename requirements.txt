@@ -1,0 +1,10 @@
+Pyrogram
+TgCrypto
+motor
+aiohttp
+beautifulsoup4
+requests
+ffmpeg-python
+psutil
+dnspython
+python-dotenv
