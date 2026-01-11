@@ -8,14 +8,14 @@ class Downloader:
     def __init__(self):
         pass
 
-    async def download_file(self, url, filename, cookies=None, progress_callback=None):
+    async def download_file(self, url, filename, headers=None, cookies=None, progress_callback=None):
         async with aiohttp.ClientSession(cookies=cookies) as session:
-            # Note: Terabox links might need specific headers/cookies passed here
-            # For now, we assume url is the direct link (dlink)
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-                 "Referer": "https://www.terabox.com/"
-            }
+            # Use provided headers or fallback
+            if not headers:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+                     "Referer": "https://www.terabox.com/"
+                }
 
             try:
                 async with session.get(url, headers=headers) as response:

@@ -71,20 +71,26 @@ async def text_handler(client: Client, message: Message):
 
             downloader = Downloader()
             cookies = terabox.get_cookies_dict()
+            headers = terabox.get_headers()
 
             for file_info in files:
                 dlink = file_info.get('dlink')
                 filename = file_info.get('filename')
                 size = file_info.get('size')
 
-                # Check 2GB Limit for download safety if disk is small,
-                # but we are splitting so it's okay IF we have disk space.
+                if not dlink:
+                    await status_msg.edit_text(f"❌ Could not extract download link for {filename or 'file'}")
+                    continue
+
+                if not filename:
+                    filename = f"unknown_file_{int(time.time())}"
 
                 # Download
                 await status_msg.edit_text(f"⬇️ Downloading: {filename}")
                 local_path, error = await downloader.download_file(
                     dlink,
                     filename,
+                    headers=headers,
                     cookies=cookies,
                     progress_callback=lambda c, t, s: progress_bar(c, t, s, status_msg, time.time())
                 )

@@ -103,9 +103,11 @@ class TeraboxClient:
             file_list = []
             if 'list' in data:
                 for item in data['list']:
+                    fs_id = item.get('fs_id')
+                    filename = item.get('server_filename') or f"terabox_file_{fs_id}"
                     file_list.append({
-                        "fs_id": item.get('fs_id'),
-                        "filename": item.get('server_filename'),
+                        "fs_id": fs_id,
+                        "filename": filename,
                         "size": int(item.get('size')),
                         "dlink": item.get('dlink'),
                         "is_dir": item.get('isdir') == "1"

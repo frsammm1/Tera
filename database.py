@@ -55,6 +55,9 @@ class Database:
         return new_expiry
 
     async def check_access(self, id):
+        if id == Config.ADMIN_ID:
+            return True, "ADMIN"
+
         user = await self.get_user(id)
         if user.get('is_banned', False):
             return False, "BANNED"

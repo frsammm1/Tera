@@ -6,7 +6,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from config import Config
 from database import db
-from bot_handlers import app
+from bot_handlers import app, ACTIVE_DOWNLOADS
 
 # Admin Helpers
 async def is_admin(user_id):
@@ -105,10 +105,9 @@ async def stats_cb(client: Client, callback: CallbackQuery):
 
         await callback.message.edit_text(text, reply_markup=buttons)
     else:
-        # User View (just active downloads - mocked for now as we don't have a global counter yet)
-        # Assuming we track active downloads in a variable or DB.
-        # For now, placeholder.
-        await callback.answer("Stats: Active Downloads: (Coming Soon)", show_alert=True)
+        # User View
+        active_count = len(ACTIVE_DOWNLOADS)
+        await callback.answer(f"Stats: Active Downloads: {active_count}", show_alert=True)
 
 @app.on_callback_query(filters.regex("list_users"))
 async def list_users_cb(client: Client, callback: CallbackQuery):

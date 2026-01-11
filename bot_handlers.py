@@ -47,11 +47,6 @@ async def download_mode_cb(client: Client, callback: CallbackQuery):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_home")]])
     )
 
-@app.on_callback_query(filters.regex("stats"))
-async def stats_cb(client: Client, callback: CallbackQuery):
-    active_count = len(ACTIVE_DOWNLOADS)
-    await callback.answer(f"Stats: Active Downloads: {active_count}", show_alert=True)
-
 @app.on_callback_query(filters.regex("back_home"))
 async def back_home_cb(client: Client, callback: CallbackQuery):
     await start_handler(client, callback.message)
