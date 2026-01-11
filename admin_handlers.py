@@ -44,7 +44,7 @@ async def add_user_cmd(client: Client, message: Message):
             return
 
         new_expiry = await db.update_expiry(target_id, seconds)
-        await db.unban_user(target_id) # Unban if they were banned
+        # await db.unban_user(target_id) # handled in update_expiry
 
         # Calculate expiry date string
         expiry_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(new_expiry))
@@ -75,17 +75,6 @@ async def revoke_cmd(client: Client, message: Message):
 
 @app.on_callback_query(filters.regex("stats"))
 async def stats_cb(client: Client, callback: CallbackQuery):
-    # Check if admin (optional, but requested as 'Admin Panel')
-    # User requirement: "Admin contact... stats (active downloads)" on start.
-    # Also "Admin Panel" for admin.
-
-    # Let's show basic stats to everyone, and full stats to admin?
-    # Requirement: "stats (active downloads)" - implies public or user facing.
-    # Requirement: "Mere paas ek alag admin panel ui/ux me aana chahiye... kitne users..."
-
-    # If user is admin, show Admin Panel with "Users" button.
-    # If normal user, show basic stats.
-
     if callback.from_user.id == Config.ADMIN_ID:
         # Admin View
         total_users = await db.col.count_documents({})
@@ -107,6 +96,7 @@ async def stats_cb(client: Client, callback: CallbackQuery):
     else:
         # User View
         active_count = len(ACTIVE_DOWNLOADS)
+        # Show alert for user
         await callback.answer(f"Stats: Active Downloads: {active_count}", show_alert=True)
 
 @app.on_callback_query(filters.regex("list_users"))
@@ -120,8 +110,8 @@ async def list_users_cb(client: Client, callback: CallbackQuery):
     text = "**User List (Last 50):**\n\n"
     for user in users:
         uid = user.get('id')
-        name = f"User {uid}" # We might not have names if not stored, let's assume we just use ID
-        # Make name clickable to profile
+        name = f"User {uid}"
+        # Clickable link to profile
         text += f"• [{name}](tg://user?id={uid}) (`{uid}`)\n"
 
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="stats")]]))

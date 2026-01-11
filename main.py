@@ -78,12 +78,13 @@ async def text_handler(client: Client, message: Message):
                 filename = file_info.get('filename')
                 size = file_info.get('size')
 
-                if not dlink:
-                    await status_msg.edit_text(f"❌ Could not extract download link for {filename or 'file'}")
-                    continue
-
                 if not filename:
                     filename = f"unknown_file_{int(time.time())}"
+
+                if not dlink:
+                    await status_msg.edit_text(f"❌ Could not extract download link for {filename}. (Private file or API limitation)")
+                    # Try to continue with next file if any
+                    continue
 
                 # Download
                 await status_msg.edit_text(f"⬇️ Downloading: {filename}")
@@ -127,6 +128,8 @@ async def text_handler(client: Client, message: Message):
 
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             if user_id in ACTIVE_DOWNLOADS:
                 ACTIVE_DOWNLOADS.remove(user_id)

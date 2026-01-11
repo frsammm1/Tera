@@ -34,6 +34,9 @@ class Database:
         return self.col.find({})
 
     async def reduce_credit(self, id):
+        if id == Config.ADMIN_ID:
+            return True
+
         user = await self.get_user(id)
         if user['credits'] > 0:
             await self.col.update_one({'id': int(id)}, {'$inc': {'credits': -1}})
@@ -51,7 +54,7 @@ class Database:
         else:
             new_expiry = current_time + seconds
 
-        await self.col.update_one({'id': int(id)}, {'$set': {'expiry_date': new_expiry}})
+        await self.col.update_one({'id': int(id)}, {'$set': {'expiry_date': new_expiry, 'is_banned': False}})
         return new_expiry
 
     async def check_access(self, id):
@@ -76,14 +79,7 @@ class Database:
         await self.col.update_one({'id': int(id)}, {'$set': {'is_banned': True}})
 
     async def revoke_access(self, id):
-        # Revokes premium and credits? Requirement says "revoke userid karke kisi bhi user ko revoke kar sakta hu bot ke usage se"
-        # And "jab tAk mai kisi user ko /add_user ... validity na du user kisi bhi haal me bot use nhi kar sakta"
-        # It sounds like revoke basically bans or clears everything.
-        # "mai jab bhi revoke karu turant hi user bot is access khatam ho jayega"
-        # I will set banned to True for safety, OR just clear expiry.
-        # The prompt says: "jab kabhi access du validity se tab user kar sakta hai"
-        # So I will clear expiry and set credits to 0, or just set a 'revoked' flag.
-        # Let's set is_banned to True.
+        # Revokes all access
         await self.col.update_one({'id': int(id)}, {'$set': {'is_banned': True, 'credits': 0, 'expiry_date': 0}})
 
     async def unban_user(self, id):

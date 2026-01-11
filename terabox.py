@@ -34,7 +34,7 @@ class TeraboxClient:
     def get_data(self, url):
         # 1. Normalize URL
         if not url:
-            return None
+            return {"error": "Empty URL"}
 
         session = requests.Session()
         session.cookies.update(self.get_cookies_dict())
@@ -45,40 +45,33 @@ class TeraboxClient:
         try:
             # Attempt 1: Follow redirects
             try:
-                response = session.get(url, allow_redirects=True, timeout=10)
+                # Some shortlinks like teraboxshare.com require handling
+                response = session.get(url, allow_redirects=True, timeout=15)
                 final_url = response.url
 
                 # Check if we landed on an error page or similar
-                if "error" in final_url or response.status_code == 404:
-                    raise Exception("Redirected to error page")
+                if "error" in final_url or response.status_code >= 400:
+                    print(f"Warning: Redirect ended at {final_url} with status {response.status_code}")
+                    # Don't raise immediately, try parsing original url if redirect failed
 
-                params = parse_qs(urlparse(final_url).query)
-                if 'surl' in params:
-                    surl = params['surl'][0]
-                else:
-                    path = urlparse(final_url).path
-                    if '/s/' in path:
-                        surl = path.split('/s/')[-1]
+                # Extract SURL from final URL
+                surl = self._extract_surl(final_url)
+
             except Exception as e:
-                # Fallback: Extract from initial URL string if requests failed
-                # This handles cases where the domain is blocked or redirects to 404
-                # pattern: /s/1abcde
-                print(f"Extraction fallback due to: {e}")
-                path = urlparse(url).path
-                if '/s/' in path:
-                    surl = path.split('/s/')[-1]
-                else:
-                     # Attempt to find surl param in query
-                    params = parse_qs(urlparse(url).query)
-                    if 'surl' in params:
-                        surl = params['surl'][0]
+                print(f"Redirect Error: {e}")
+
+            # If redirect didn't give surl, try original URL
+            if not surl:
+                surl = self._extract_surl(url)
 
             if not surl:
-                return {"error": "Could not extract surl"}
+                return {"error": "Could not extract surl from link"}
 
             # FIX: API requires shorturl to start with '1'
             if not surl.startswith("1"):
                 surl = "1" + surl
+
+            print(f"Processing surl: {surl}")
 
             # 2. Get File List via API
             api_url = "https://www.terabox.com/api/shorturlinfo"
@@ -92,7 +85,7 @@ class TeraboxClient:
 
             if data.get('errno') != 0:
                 errno = data.get('errno')
-                error_msg = f"API Error: {errno}"
+                error_msg = f"API Error {errno}: {data.get('errmsg', 'Unknown')}"
                 if errno == 105:
                     error_msg = "Link is expired or deleted (Error 105)"
                 elif errno == 2:
@@ -100,28 +93,89 @@ class TeraboxClient:
                 return {"error": error_msg}
 
             # Process file list
-            file_list = []
+            files = []
             if 'list' in data:
                 for item in data['list']:
-                    fs_id = item.get('fs_id')
-                    filename = item.get('server_filename') or f"terabox_file_{fs_id}"
-                    file_list.append({
-                        "fs_id": fs_id,
-                        "filename": filename,
-                        "size": int(item.get('size')),
-                        "dlink": item.get('dlink'),
-                        "is_dir": item.get('isdir') == "1"
-                    })
+                    if item.get('isdir') == "1":
+                        # Fetch folder content
+                        print(f"Found folder: {item.get('path')}")
+                        folder_files = self.fetch_folder(session, surl, item.get('path'))
+                        files.extend(folder_files)
+                    else:
+                        files.append(self.parse_item(item))
+
+            if not files:
+                 return {"error": "No files found or extraction failed."}
 
             return {
-                "files": file_list,
+                "files": files,
                 "shareid": data.get('shareid'),
                 "uk": data.get('uk'),
-                "sign": data.get('sign'),
-                "timestamp": data.get('timestamp')
             }
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return {"error": str(e)}
+
+    def _extract_surl(self, url):
+        surl = None
+        parsed = urlparse(url)
+
+        # Method A: Path /s/1xxx
+        path_parts = parsed.path.split('/')
+        if 's' in path_parts:
+            idx = path_parts.index('s')
+            if idx + 1 < len(path_parts):
+                candidate = path_parts[idx+1]
+                if candidate:
+                    surl = candidate
+
+        # Method B: Query param surl=1xxx
+        if not surl:
+            qs = parse_qs(parsed.query)
+            if 'surl' in qs:
+                surl = qs['surl'][0]
+
+        return surl
+
+    def fetch_folder(self, session, surl, dir_path):
+        url = "https://www.terabox.com/share/list"
+        params = {
+            "shorturl": surl,
+            "dir": dir_path,
+            "root": "0"
+        }
+
+        files = []
+        try:
+            res = session.get(url, params=params)
+            data = res.json()
+
+            if data.get('errno') == 0 and 'list' in data:
+                for item in data['list']:
+                    if item.get('isdir') == "1":
+                         # Recursive fetch
+                         files.extend(self.fetch_folder(session, surl, item.get('path')))
+                    else:
+                        files.append(self.parse_item(item))
+        except Exception as e:
+            print(f"Error fetching folder {dir_path}: {e}")
+
+        return files
+
+    def parse_item(self, item):
+        fs_id = item.get('fs_id')
+        filename = item.get('server_filename')
+        if not filename:
+            filename = f"terabox_file_{fs_id}"
+
+        return {
+            "fs_id": fs_id,
+            "filename": filename,
+            "size": int(item.get('size', 0)),
+            "dlink": item.get('dlink'),
+            "is_dir": False
+        }
 
 terabox = TeraboxClient()
