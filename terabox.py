@@ -46,6 +46,7 @@ class TeraboxClient:
             # Attempt 1: Follow redirects
             try:
                 # Some shortlinks like teraboxshare.com require handling
+                # We do not verify SSL for obscure shorteners if needed, but Terabox should be fine.
                 response = session.get(url, allow_redirects=True, timeout=15)
                 final_url = response.url
 
@@ -65,15 +66,17 @@ class TeraboxClient:
                 surl = self._extract_surl(url)
 
             if not surl:
-                return {"error": "Could not extract surl from link"}
+                return {"error": "Could not extract surl from link. Please make sure it is a valid Terabox/1024tera link."}
 
-            # FIX: API requires shorturl to start with '1'
+            # Prepend '1' if missing, but be careful (sometimes it's not needed, but usually is for API)
+            # Most 1024tera links extract as 'q_...' and need '1q_...' for the API.
             if not surl.startswith("1"):
                 surl = "1" + surl
 
             print(f"Processing surl: {surl}")
 
             # 2. Get File List via API
+            # Note: We use www.terabox.com even if the link was 1024tera, as the API is centralized.
             api_url = "https://www.terabox.com/api/shorturlinfo"
             params = {
                 "shorturl": surl,
@@ -89,7 +92,9 @@ class TeraboxClient:
                 if errno == 105:
                     error_msg = "Link is expired or deleted (Error 105)"
                 elif errno == 2:
-                    error_msg = "Invalid Link or Cookies Expired (Error 2)"
+                    error_msg = "Login Expired. Please update cookies (Error 2)"
+                elif errno == 4000020:
+                     error_msg = "Invalid Short URL or Permission Denied (Error 4000020)"
                 return {"error": error_msg}
 
             # Process file list
@@ -105,7 +110,7 @@ class TeraboxClient:
                         files.append(self.parse_item(item))
 
             if not files:
-                 return {"error": "No files found or extraction failed."}
+                 return {"error": "No files found. The link might be empty or valid cookies are required to view content."}
 
             return {
                 "files": files,
@@ -120,22 +125,32 @@ class TeraboxClient:
 
     def _extract_surl(self, url):
         surl = None
-        parsed = urlparse(url)
+        try:
+            parsed = urlparse(url)
 
-        # Method A: Path /s/1xxx
-        path_parts = parsed.path.split('/')
-        if 's' in path_parts:
-            idx = path_parts.index('s')
-            if idx + 1 < len(path_parts):
-                candidate = path_parts[idx+1]
-                if candidate:
-                    surl = candidate
+            # Method A: Path /s/1xxx
+            path_parts = parsed.path.split('/')
+            if 's' in path_parts:
+                idx = path_parts.index('s')
+                if idx + 1 < len(path_parts):
+                    candidate = path_parts[idx+1]
+                    if candidate:
+                        surl = candidate
 
-        # Method B: Query param surl=1xxx
-        if not surl:
-            qs = parse_qs(parsed.query)
-            if 'surl' in qs:
-                surl = qs['surl'][0]
+            # Method B: Query param surl=1xxx
+            if not surl:
+                qs = parse_qs(parsed.query)
+                if 'surl' in qs:
+                    surl = qs['surl'][0]
+
+            # Method C: Handle sharing/link?surl=...
+            if not surl and 'sharing/link' in parsed.path:
+                 qs = parse_qs(parsed.query)
+                 if 'surl' in qs:
+                    surl = qs['surl'][0]
+
+        except Exception as e:
+            print(f"Error extracting SURL: {e}")
 
         return surl
 
@@ -174,7 +189,7 @@ class TeraboxClient:
             "fs_id": fs_id,
             "filename": filename,
             "size": int(item.get('size', 0)),
-            "dlink": item.get('dlink'),
+            "dlink": item.get('dlink'), # Might be empty if not logged in
             "is_dir": False
         }
 
