@@ -12,6 +12,9 @@ app = Client(
     bot_token=Config.BOT_TOKEN
 )
 
+# Global set to track active downloads (users or tasks)
+ACTIVE_DOWNLOADS = set()
+
 # --- Handlers ---
 
 @app.on_message(filters.command("start") & filters.private)
@@ -43,6 +46,11 @@ async def download_mode_cb(client: Client, callback: CallbackQuery):
         "Limit: 2GB per file (Split if > 2GB).",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_home")]])
     )
+
+@app.on_callback_query(filters.regex("stats"))
+async def stats_cb(client: Client, callback: CallbackQuery):
+    active_count = len(ACTIVE_DOWNLOADS)
+    await callback.answer(f"Stats: Active Downloads: {active_count}", show_alert=True)
 
 @app.on_callback_query(filters.regex("back_home"))
 async def back_home_cb(client: Client, callback: CallbackQuery):

@@ -24,7 +24,7 @@ class TeraboxClient:
 
     def get_headers(self):
         return {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
             "Connection": "keep-alive",
@@ -40,44 +40,64 @@ class TeraboxClient:
         session.cookies.update(self.get_cookies_dict())
         session.headers.update(self.get_headers())
 
+        surl = ""
+
         try:
-            # Follow redirects to get the true URL (handling 1024tera, etc.)
-            response = session.get(url, allow_redirects=True)
-            final_url = response.url
+            # Attempt 1: Follow redirects
+            try:
+                response = session.get(url, allow_redirects=True, timeout=10)
+                final_url = response.url
 
-            # Extract 'surl' (short url key)
-            # URL patterns: terabox.com/s/1abcde or terabox.com/sharing/link?surl=abcde
-            surl = ""
-            params = parse_qs(urlparse(final_url).query)
+                # Check if we landed on an error page or similar
+                if "error" in final_url or response.status_code == 404:
+                    raise Exception("Redirected to error page")
 
-            if 'surl' in params:
-                surl = params['surl'][0]
-            else:
-                # Try path extraction
-                path = urlparse(final_url).path
+                params = parse_qs(urlparse(final_url).query)
+                if 'surl' in params:
+                    surl = params['surl'][0]
+                else:
+                    path = urlparse(final_url).path
+                    if '/s/' in path:
+                        surl = path.split('/s/')[-1]
+            except Exception as e:
+                # Fallback: Extract from initial URL string if requests failed
+                # This handles cases where the domain is blocked or redirects to 404
+                # pattern: /s/1abcde
+                print(f"Extraction fallback due to: {e}")
+                path = urlparse(url).path
                 if '/s/' in path:
                     surl = path.split('/s/')[-1]
+                else:
+                     # Attempt to find surl param in query
+                    params = parse_qs(urlparse(url).query)
+                    if 'surl' in params:
+                        surl = params['surl'][0]
 
             if not surl:
                 return {"error": "Could not extract surl"}
 
-            # If surl starts with '1', remove it for the API call usually?
-            # Actually, the API parameter is 'shorturl'. If surl is '1-abc', shorturl is '1-abc'.
+            # FIX: API requires shorturl to start with '1'
+            if not surl.startswith("1"):
+                surl = "1" + surl
 
             # 2. Get File List via API
-            # This is a known endpoint structure.
             api_url = "https://www.terabox.com/api/shorturlinfo"
             params = {
                 "shorturl": surl,
                 "root": "1",
             }
 
-            # We need the 'jsToken' sometimes, but let's try with just cookies first.
             api_response = session.get(api_url, params=params)
             data = api_response.json()
 
             if data.get('errno') != 0:
-                return {"error": f"API Error: {data.get('errno')}"}
+                errno = data.get('errno')
+                error_msg = f"API Error: {errno}"
+                if errno == 105:
+                    error_msg = "Link is expired or deleted (Error 105)"
+                elif errno == 2:
+                    error_msg = "Invalid Link or Cookies Expired (Error 2)"
+                return {"error": error_msg}
 
             # Process file list
             file_list = []
@@ -87,7 +107,7 @@ class TeraboxClient:
                         "fs_id": item.get('fs_id'),
                         "filename": item.get('server_filename'),
                         "size": int(item.get('size')),
-                        "dlink": item.get('dlink'), # Note: dlink here might expire or need User-Agent
+                        "dlink": item.get('dlink'),
                         "is_dir": item.get('isdir') == "1"
                     })
 

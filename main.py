@@ -15,7 +15,7 @@ import admin_handlers
 
 # Initialize Client (reuse from bot_handlers or create new instance logic)
 # Since we defined 'app' in bot_handlers, we should import it.
-from bot_handlers import app
+from bot_handlers import app, ACTIVE_DOWNLOADS
 
 # --- Main Logic for Links ---
 
@@ -44,6 +44,9 @@ async def text_handler(client: Client, message: Message):
     if "terabox" in text or "1024tera" in text:
         # Process Link
         status_msg = await message.reply_text("🔎 Processing Terabox Link...")
+
+        # Add to active downloads
+        ACTIVE_DOWNLOADS.add(user_id)
 
         try:
             # 1. Get Data
@@ -118,6 +121,9 @@ async def text_handler(client: Client, message: Message):
 
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Error: {e}")
+        finally:
+            if user_id in ACTIVE_DOWNLOADS:
+                ACTIVE_DOWNLOADS.remove(user_id)
 
     else:
         # Not a link, maybe chat?
