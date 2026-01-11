@@ -9,8 +9,11 @@ class TeraboxClient:
     def __init__(self, cookie_file='www.terabox.com_cookies.txt'):
         self.cookie_file = cookie_file
         self.cj = http.cookiejar.MozillaCookieJar(self.cookie_file)
+        self.cookies_loaded = False
         try:
-            self.cj.load()
+            if os.path.exists(self.cookie_file):
+                self.cj.load()
+                self.cookies_loaded = True
         except Exception as e:
             print(f"Error loading cookies: {e}")
             self.cj = None
@@ -23,13 +26,23 @@ class TeraboxClient:
         return cookies
 
     def get_headers(self):
-        return {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Connection": "keep-alive",
-            "Referer": "https://www.terabox.com/"
+        # Use strict headers to mimic a real browser
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.terabox.com/main",
+            "Origin": "https://www.terabox.com",
+            "X-Requested-With": "XMLHttpRequest",
+            "Connection": "keep-alive"
         }
+
+        # Inject CSRF token if available in cookies
+        cookies = self.get_cookies_dict()
+        if 'csrfToken' in cookies:
+            headers['X-Csrf-Token'] = cookies['csrfToken']
+
+        return headers
 
     def get_data(self, url):
         # 1. Normalize URL
@@ -43,9 +56,8 @@ class TeraboxClient:
         surl = ""
 
         try:
-            # Attempt 1: Follow redirects
+            # Attempt 1: Follow redirects to resolve shortlinks (e.g. 1024tera)
             try:
-                # Some shortlinks like teraboxshare.com require handling
                 # We do not verify SSL for obscure shorteners if needed, but Terabox should be fine.
                 response = session.get(url, allow_redirects=True, timeout=15)
                 final_url = response.url
@@ -68,15 +80,13 @@ class TeraboxClient:
             if not surl:
                 return {"error": "Could not extract surl from link. Please make sure it is a valid Terabox/1024tera link."}
 
-            # Prepend '1' if missing, but be careful (sometimes it's not needed, but usually is for API)
-            # Most 1024tera links extract as 'q_...' and need '1q_...' for the API.
+            # Prepend '1' if missing
             if not surl.startswith("1"):
                 surl = "1" + surl
 
             print(f"Processing surl: {surl}")
 
             # 2. Get File List via API
-            # Note: We use www.terabox.com even if the link was 1024tera, as the API is centralized.
             api_url = "https://www.terabox.com/api/shorturlinfo"
             params = {
                 "shorturl": surl,
@@ -86,15 +96,23 @@ class TeraboxClient:
             api_response = session.get(api_url, params=params)
             data = api_response.json()
 
+            # Handle Errors
             if data.get('errno') != 0:
                 errno = data.get('errno')
                 error_msg = f"API Error {errno}: {data.get('errmsg', 'Unknown')}"
+
                 if errno == 105:
                     error_msg = "Link is expired or deleted (Error 105)"
                 elif errno == 2:
+                    # Special Case: Even if errno 2, sometimes list is returned?
+                    # No, usually errno 2 means fail. But our tests showed we might get list if errno is 0 but cookies are bad.
+                    # If we explicitly get errno 2 here, it's a hard fail.
                     error_msg = "Login Expired. Please update cookies (Error 2)"
-                elif errno == 4000020:
-                     error_msg = "Invalid Short URL or Permission Denied (Error 4000020)"
+                elif errno == 4000020 or errno == 400141:
+                     error_msg = "Verification required by Terabox (CAPTCHA/Email). IP might be blocked. (Error 4000020)"
+                elif errno == 400210:
+                     error_msg = "Private Link or Login Required (Error 400210)"
+
                 return {"error": error_msg}
 
             # Process file list
